@@ -11,6 +11,7 @@ from llm import (
     stream_claude_response,
     stream_claude_response_native,
     stream_openai_response,
+    stream_glm_response
 )
 from openai.types.chat import ChatCompletionMessageParam
 from mock_llm import mock_completion
@@ -65,7 +66,7 @@ async def stream_code(websocket: WebSocket):
     # TODO: Are the values always strings?
     params: Dict[str, str] = await websocket.receive_json()
 
-    print("Received params")
+    print("Received params", params)
 
     # Read the code config settings from the request. Fall back to default if not provided.
     generated_code_config = ""
@@ -273,6 +274,18 @@ async def stream_code(websocket: WebSocket):
                 completion = await stream_claude_response(
                     prompt_messages,  # type: ignore
                     api_key=anthropic_api_key,
+                    callback=lambda x: process_chunk(x),
+                    model=code_generation_model,
+                )
+                exact_llm_version = code_generation_model
+            elif (
+                code_generation_model == Llm.GLM_4V
+            ):
+                write_logs(prompt_messages, 'glm_prompt.txt')
+                completion = await stream_glm_response(
+                    prompt_messages,  # type: ignore
+                    api_key=openai_api_key,
+                    base_url=openai_base_url,
                     callback=lambda x: process_chunk(x),
                     model=code_generation_model,
                 )

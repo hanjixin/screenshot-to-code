@@ -5,6 +5,7 @@ import os
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", None)
+BIGMODEL = "741515f886669358c4b887567c31f08c.ImJSmwUhU5ylK56D"
 
 # Debugging-related
 

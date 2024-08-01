@@ -3,8 +3,9 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, List, cast
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
+from zhipuai import ZhipuAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionChunk
-from config import IS_DEBUG_ENABLED
+from config import BIGMODEL, IS_DEBUG_ENABLED
 from debug.DebugFileWriter import DebugFileWriter
 from image_processing.utils import process_image
 
@@ -20,12 +21,15 @@ class Llm(Enum):
     CLAUDE_3_OPUS = "claude-3-opus-20240229"
     CLAUDE_3_HAIKU = "claude-3-haiku-20240307"
     CLAUDE_3_5_SONNET_2024_06_20 = "claude-3-5-sonnet-20240620"
+    GLM_4V = "glm-4v"
 
 
 # Will throw errors if you send a garbage string
 def convert_frontend_str_to_llm(frontend_str: str) -> Llm:
     if frontend_str == "gpt_4_vision":
         return Llm.GPT_4_VISION
+    if frontend_str == "glm-4v":
+        return Llm.GLM_4V
     elif frontend_str == "claude_3_sonnet":
         return Llm.CLAUDE_3_SONNET
     else:
@@ -74,6 +78,79 @@ async def stream_openai_response(
 
     await client.close()
 
+    return full_response
+
+async def stream_glm_response(
+    messages: List[ChatCompletionMessageParam],
+    api_key: str,
+    base_url: str | None,
+    callback: Callable[[str], Awaitable[None]],
+    model: Llm,
+) -> str:
+    client  = ZhipuAI(api_key=BIGMODEL) # type: ignore # 填写您自己的APIKey
+    sys_msg = messages[0]
+    # sys_msg['role'] = 'assistant' # type: ignore
+
+    claude_messages = [ dict(message) for message in messages[1:]]
+    for message in claude_messages:
+        if not isinstance(message["content"], list):
+            continue
+
+        for content in message["content"]:  # type: ignore
+            if content["type"] == "image_url":
+                content["type"] = "image_url"
+
+                # Extract base64 data and media type from data URL
+                # Example base64 data URL: data:image/png;base64,iVBOR...
+                image_data_url = cast(str, content["image_url"]["url"])
+
+                # Process image and split media type and data
+                # so it works with Claude (under 5mb in base64 encoding)
+                # (media_type, base64_data) = process_image(image_data_url)
+
+                # Remove OpenAI parameter
+                del content["image_url"]
+
+                content["image_url"] = {
+                    "url": image_data_url
+                }
+
+
+    # Base parameters
+    params = {
+        "model": model.value,
+        "messages": [sys_msg,*claude_messages],
+        "stream": False,
+        "timeout": 600,
+        "temperature": 0.0,
+    }
+
+    print(len(messages))
+    # Add 'max_tokens' only if the model is a GPT4 vision or Turbo model
+    if (
+        model == Llm.GLM_4V
+        or model == Llm.GPT_4_TURBO_2024_04_09
+        or model == Llm.GPT_4O_2024_05_13
+    ):
+        params["max_tokens"] = 1024
+
+    stream = client.chat.completions.create(**params)  # type: ignore
+    full_response = ""
+    print(stream, 'stream')
+    # for chunk in stream:
+    #     assert isinstance(chunk, ChatCompletionChunk)
+    #     if (
+    #         chunk.choices
+    #         and len(chunk.choices) > 0
+    #         and chunk.choices[0].delta
+    #         and chunk.choices[0].delta.content
+    #     ):
+    #         content = chunk.choices[0].delta.content or ""
+    #         full_response += content
+    #         await callback(content)
+    full_response = stream.choices[0].message.content # type: ignore
+    # await client.close()
+    # full_response = stream.json().
     return full_response
 
 
